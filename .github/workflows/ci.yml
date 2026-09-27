@@ -10,6 +10,7 @@ jobs:
     timeout-minutes: 10
     env:
       CARD_PROVIDER: demo
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,4 +27,4 @@ jobs:
       - name: JavaScript syntax
         run: node --check static/app.js
       - name: Tests
-        run: pytest -q
+        run: python -m pytest -q
