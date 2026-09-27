@@ -55,6 +55,43 @@ class DeckState(BaseModel):
     def card_count(self) -> int:
         return len(self.main_copy_ids) + sum(max(0, int(v)) for v in self.basics.values())
 
+    @property
+    def legal_for_sealed(self) -> bool:
+        return self.card_count >= 40
+
+
+class MatchResult(BaseModel):
+    games_a: int = Field(default=0, ge=0, le=9)
+    games_b: int = Field(default=0, ge=0, le=9)
+    draws: int = Field(default=0, ge=0, le=9)
+
+
+class MatchRecord(BaseModel):
+    id: str
+    round_number: int
+    player_a_id: str
+    player_b_id: str | None = None
+    status: Literal["pending", "complete"] = "pending"
+    result: MatchResult = Field(default_factory=MatchResult)
+    winner_id: str | None = None
+    reported_by: str | None = None
+    completed_at: str | None = None
+    engine_game_id: str | None = None
+
+    @property
+    def is_bye(self) -> bool:
+        return self.player_b_id is None
+
+
+class RoundRecord(BaseModel):
+    number: int
+    created_at: str
+    matches: list[MatchRecord] = Field(default_factory=list)
+
+    @property
+    def complete(self) -> bool:
+        return all(match.status == "complete" for match in self.matches)
+
 
 class PlayerRecord(BaseModel):
     id: str
@@ -63,6 +100,7 @@ class PlayerRecord(BaseModel):
     joined_at: str
     kit: PrereleaseKit | None = None
     deck: DeckState = Field(default_factory=DeckState)
+    dropped: bool = False
 
 
 class EventRecord(BaseModel):
@@ -74,6 +112,8 @@ class EventRecord(BaseModel):
     status: Literal["lobby", "deckbuilding", "playing", "complete"] = "lobby"
     created_at: str
     players: dict[str, PlayerRecord] = Field(default_factory=dict)
+    rounds: list[RoundRecord] = Field(default_factory=list)
+    max_rounds: int = 0
 
 
 class CreateEventRequest(BaseModel):
@@ -96,11 +136,52 @@ class SaveDeckRequest(AuthRequest):
     basics: dict[str, int] = Field(default_factory=dict)
 
 
+class ReportMatchRequest(AuthRequest):
+    games_won: int = Field(ge=0, le=9)
+    games_lost: int = Field(ge=0, le=9)
+    draws: int = Field(default=0, ge=0, le=9)
+
+
 class PlayerPublic(BaseModel):
     id: str
     name: str
     has_kit: bool
     deck_count: int
+    deck_legal: bool
+    dropped: bool = False
+
+
+class MatchPublic(BaseModel):
+    id: str
+    round_number: int
+    player_a_id: str
+    player_b_id: str | None
+    status: str
+    games_a: int
+    games_b: int
+    draws: int
+    winner_id: str | None
+    engine_game_id: str | None = None
+
+
+class RoundPublic(BaseModel):
+    number: int
+    complete: bool
+    matches: list[MatchPublic]
+
+
+class StandingPublic(BaseModel):
+    rank: int
+    player_id: str
+    name: str
+    match_points: int
+    match_wins: int
+    match_losses: int
+    match_draws: int
+    game_wins: int
+    game_losses: int
+    game_draws: int
+    byes: int
 
 
 class EventPublic(BaseModel):
@@ -111,6 +192,10 @@ class EventPublic(BaseModel):
     host_player_id: str
     status: str
     players: list[PlayerPublic]
+    current_round: int = 0
+    max_rounds: int = 0
+    rounds: list[RoundPublic] = Field(default_factory=list)
+    standings: list[StandingPublic] = Field(default_factory=list)
 
 
 class SessionResponse(BaseModel):
