@@ -42,8 +42,18 @@ def export_xmage_deck(player: PlayerRecord, *, name: str | None = None) -> str:
             raise ValueError(f"{card.name} is missing set/collector metadata required by XMage.")
         selected.append(card)
 
+    selected_ids = set(player.deck.main_copy_ids)
+    sideboard_cards = [
+        card
+        for copy_id, card in pool.items()
+        if copy_id not in selected_ids
+    ]
     counts: Counter[tuple[str, str, str]] = Counter(
         (card.set_code.upper(), card.number, card.name) for card in selected
+    )
+    sideboard_counts: Counter[tuple[str, str, str]] = Counter(
+        (card.set_code.upper(), card.number, card.name) for card in sideboard_cards
+        if card.set_code and card.number
     )
 
     lines: list[str] = []
@@ -63,6 +73,20 @@ def export_xmage_deck(player: PlayerRecord, *, name: str | None = None) -> str:
         if count:
             set_code, number = BASIC_PRINTINGS[basic]
             lines.append(f"{count} [{set_code}:{number}] {basic}")
+
+    # In Limited, every opened card is available between games. XMage's DCK
+    # format marks sideboard cards with "SB:". We also provide a generous
+    # reserve of each basic land so the player can completely rebuild mana
+    # between games, matching prerelease's unlimited-basic-land rule.
+    for (set_code, number, card_name), count in sorted(
+        sideboard_counts.items(),
+        key=lambda item: (item[0][0], item[0][1], item[0][2].casefold()),
+    ):
+        lines.append(f"SB: {count} [{set_code}:{number}] {card_name}")
+
+    for basic in ["Plains", "Island", "Swamp", "Mountain", "Forest"]:
+        set_code, number = BASIC_PRINTINGS[basic]
+        lines.append(f"SB: 40 [{set_code}:{number}] {basic}")
 
     return "\n".join(lines) + "\n"
 
