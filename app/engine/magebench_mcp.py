@@ -90,10 +90,10 @@ class BridgeMcpClient:
         return self.call_tool_json("get_action_choices")
 
     def choose_action(self, **arguments: Any) -> Any:
-        return self.call_tool_json("choose_action", arguments, timeout=120)
+        return self.call_tool_json("choose_action", arguments, timeout=600)
 
     def pass_priority(self, **arguments: Any) -> Any:
-        return self.call_tool_json("pass_priority", arguments, timeout=120)
+        return self.call_tool_json("pass_priority", arguments, timeout=900)
 
     def send_chat_message(self, message: str) -> Any:
         return self.call_tool_json("send_chat_message", {"message": message})
