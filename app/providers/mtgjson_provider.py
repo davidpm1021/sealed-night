@@ -125,7 +125,14 @@ class MtgjsonProvider(CardProvider):
             return self._promo_cache[code]
         sdk = self._get_sdk()
         with self._lock:
-            cards = list(sdk.cards.search(set_code=code) or [])
+            cards = list(
+                sdk.cards.search(
+                    set_code=code,
+                    availability="paper",
+                    limit=1000,
+                )
+                or []
+            )
         eligible: list[Any] = []
         for raw in cards:
             data = self._dump(raw) or {}
