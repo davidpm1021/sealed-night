@@ -42,5 +42,6 @@ def generate_kit(
         booster_type=booster_type,
         promo=promo,
         packs=packs,
+        product_note=provider.product_note(set_code),
         generated_at=datetime.now(timezone.utc).isoformat(),
     )

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import secrets
 import socket
 import subprocess
 import time
@@ -385,13 +386,15 @@ class MageBenchRuntime:
         deck_a: Path,
         deck_b: Path,
     ) -> MatchRuntime:
-        username_a = bridge_username(player_a_id, "a")
-        username_b = bridge_username(player_b_id, "b")
+        # Unique seats prevent a later round from reusing an old bridge login.
+        nonce = secrets.token_hex(4)
+        username_a = bridge_username(nonce, "a")
+        username_b = bridge_username(nonce, "b")
         table_id, game_dir = self.create_table(
             match_key=match_key,
             username_a=username_a,
             username_b=username_b,
-            wins_needed=2,
+            wins_needed=1,
         )
         bridge_a = self.start_bridge(
             username=username_a,
@@ -399,18 +402,41 @@ class MageBenchRuntime:
             table_id=table_id,
             label=f"{match_key}-a",
         )
-        bridge_b = self.start_bridge(
-            username=username_b,
-            deck_path=deck_b,
-            table_id=table_id,
-            label=f"{match_key}-b",
-        )
+        try:
+            bridge_b = self.start_bridge(
+                username=username_b,
+                deck_path=deck_b,
+                table_id=table_id,
+                label=f"{match_key}-b",
+            )
+        except Exception:
+            self.stop_bridge(bridge_a)
+            raise
         return MatchRuntime(
             table_id=table_id,
             game_dir=game_dir,
             player_a=bridge_a,
             player_b=bridge_b,
         )
+
+    def stop_bridge(self, bridge: BridgeProcess) -> None:
+        if bridge.process.poll() is None:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(bridge.process.pid), "/T", "/F"],
+                               capture_output=True, check=False)
+            else:
+                bridge.process.terminate()
+            try:
+                bridge.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                bridge.process.kill()
+        bridge.log_file.close()
+        if bridge in self._bridges:
+            self._bridges.remove(bridge)
+
+    def stop_match(self, match: MatchRuntime) -> None:
+        self.stop_bridge(match.player_a)
+        self.stop_bridge(match.player_b)
 
     def stop(self) -> None:
         for bridge in reversed(self._bridges):

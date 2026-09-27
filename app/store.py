@@ -141,6 +141,8 @@ class EventStore:
                         draws=match.result.draws,
                         winner_id=match.winner_id,
                         engine_game_id=match.engine_game_id,
+                        engine_status=match.engine_status,
+                        game_reports=match.game_reports,
                     )
                     for match in round_record.matches
                 ],

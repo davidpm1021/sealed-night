@@ -37,6 +37,7 @@ class PrereleaseKit(BaseModel):
     promo: CardInstance
     packs: list[PackData]
     generated_at: str
+    product_note: str = "Simulated six-booster kit; physical product contents may differ."
 
 
 class DeckState(BaseModel):
@@ -77,6 +78,9 @@ class MatchRecord(BaseModel):
     reported_by: str | None = None
     completed_at: str | None = None
     engine_game_id: str | None = None
+    engine_status: Literal["idle", "active", "finished", "interrupted"] = "idle"
+    engine_results: dict[str, str] = Field(default_factory=dict)
+    game_reports: dict[str, str] = Field(default_factory=dict)
 
     @property
     def is_bye(self) -> bool:
@@ -143,6 +147,8 @@ class ReportMatchRequest(AuthRequest):
 
 
 class GameActionRequest(AuthRequest):
+    game_id: str
+    decision_id: str
     choice: str | None = None
     amount: int | None = None
     amounts: list[int] | None = None
@@ -155,8 +161,19 @@ class GameActionRequest(AuthRequest):
 
 
 class GamePassRequest(AuthRequest):
+    game_id: str
+    decision_id: str
     until: str | None = None
     board_cursor: int | None = None
+
+
+class GameResultRequest(AuthRequest):
+    game_id: str
+    winner_id: str | None = None
+
+
+class GameSessionRequest(AuthRequest):
+    game_id: str
 
 
 class PlayerPublic(BaseModel):
@@ -179,6 +196,8 @@ class MatchPublic(BaseModel):
     draws: int
     winner_id: str | None
     engine_game_id: str | None = None
+    engine_status: str = "idle"
+    game_reports: dict[str, str] = Field(default_factory=dict)
 
 
 class RoundPublic(BaseModel):

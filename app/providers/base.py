@@ -8,6 +8,9 @@ from app.models import CardData, SetPreview
 class CardProvider(ABC):
     name = "base"
 
+    def product_note(self, set_code: str) -> str:
+        return 'Simulated six-booster kit with a foil promo; physical product contents may differ.'
+
     @abstractmethod
     def preview_set(self, set_code: str) -> SetPreview:
         raise NotImplementedError

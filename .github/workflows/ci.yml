@@ -1,13 +1,15 @@
 name: CI
-
 on:
   push:
   pull_request:
-
 jobs:
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     env:
       CARD_PROVIDER: demo
       PYTHONPATH: .
@@ -15,11 +17,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
           cache: pip
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '22'
+          cache: npm
       - name: Install
         run: python -m pip install -r requirements-dev.txt
       - name: Python compile
@@ -28,3 +31,19 @@ jobs:
         run: node --check static/app.js
       - name: Tests
         run: python -m pytest -q
+      - name: Install browser tests
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser flows
+        run: npm run test:browser
+      - name: Windows one-command startup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-start.ps1
+      - name: Browser failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-traces-${{ matrix.os }}
+          path: test-results/

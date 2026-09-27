@@ -231,6 +231,17 @@ def apply_report(
     else:
         games_a, games_b = games_won, games_lost
 
+    proposed = MatchResult(games_a=games_a, games_b=games_b, draws=draws)
+    if max(games_a, games_b) > 2 or (games_a == 2 and games_b == 2):
+        raise ValueError("Best-of-three scores allow at most two wins for one player.")
+    if match.status == "complete":
+        if match.result == proposed:
+            return
+        if reporter_id != event.host_player_id:
+            raise PermissionError("Only the host can correct a completed result.")
+        if event.status == "complete" or match.round_number != len(event.rounds):
+            raise ValueError("Results are locked once the next round or final standings are created.")
+
     match.result = MatchResult(games_a=games_a, games_b=games_b, draws=draws)
     match.status = "complete"
     match.reported_by = reporter_id
@@ -241,3 +252,26 @@ def apply_report(
         match.winner_id = match.player_b_id
     else:
         match.winner_id = None
+
+
+def record_engine_game(event: EventRecord, match: MatchRecord, game_id: str, winner_id: str | None) -> bool:
+    """Apply one adapter-confirmed or player-confirmed game exactly once."""
+    if game_id != match.engine_game_id or game_id in match.engine_results or match.status == "complete":
+        return False
+    if winner_id not in {match.player_a_id, match.player_b_id, None}:
+        raise ValueError("Winner must be seated in this match.")
+    match.engine_results[game_id] = winner_id or "draw"
+    match.engine_status = "finished"
+    match.game_reports.clear()
+    if winner_id == match.player_a_id:
+        match.result.games_a += 1
+    elif winner_id == match.player_b_id:
+        match.result.games_b += 1
+    else:
+        match.result.draws += 1
+    if max(match.result.games_a, match.result.games_b) >= 2:
+        match.status = "complete"
+        match.winner_id = winner_id
+        match.reported_by = "engine"
+        match.completed_at = utcnow()
+    return True

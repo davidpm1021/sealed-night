@@ -36,18 +36,24 @@ if (Need-Command "mvn") {
 }
 
 $javaVersion = (& java -version 2>&1 | Select-Object -First 1)
+if ($javaVersion -notmatch 'version "(\d+)' -or [int]$Matches[1] -lt 21) {
+    throw 'Java 21 or newer is required. Install it and open a new terminal before retrying.'
+}
 Write-Host "Java: $javaVersion"
 Write-Host "Maven: $(& mvn -version | Select-Object -First 1)"
 
 New-Item -ItemType Directory -Force -Path $vendor | Out-Null
 if (-not (Test-Path $mageBench)) {
     git clone https://github.com/GregorStocks/mage-bench.git $mageBench
+    if ($LASTEXITCODE -ne 0) { throw "Could not clone mage-bench." }
 }
 
 Push-Location $mageBench
 try {
     git fetch origin
+    if ($LASTEXITCODE -ne 0) { throw "Could not fetch mage-bench." }
     git checkout --detach $mageBenchCommit
+    if ($LASTEXITCODE -ne 0) { throw "Could not check out the pinned engine revision." }
 
     Write-Host "Building the XMage server, observer, and headless bridge..." -ForegroundColor Cyan
     mvn -q -pl Mage.Server,Mage.Client.Observer,Mage.Client.Bridge -am -DskipTests install

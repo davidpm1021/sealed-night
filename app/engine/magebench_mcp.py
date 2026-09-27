@@ -68,6 +68,8 @@ class BridgeMcpClient:
             {"name": name, "arguments": arguments or {}},
             timeout=timeout,
         )
+        if result.get("isError"):
+            raise BridgeMcpError(f"XMage bridge tool {name} failed: {result.get('content')}")
         content = result.get("content") or []
         if not content or not isinstance(content, list):
             raise BridgeMcpError(f"XMage bridge tool {name} returned no content.")

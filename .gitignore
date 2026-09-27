@@ -7,3 +7,10 @@ data/events/*.json
 .DS_Store
 .vendor/
 data/xmage/
+
+node_modules/
+playwright-report/
+test-results/
+data/browser-tests/
+data/startup-smoke/
+startup-smoke.log*
