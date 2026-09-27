@@ -2,13 +2,19 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-import json
 import os
 import secrets
-import string
 import threading
 
-from app.models import DeckState, EventPublic, EventRecord, PlayerPublic, PlayerRecord
+from app.models import (
+    EventPublic,
+    EventRecord,
+    MatchPublic,
+    PlayerPublic,
+    PlayerRecord,
+    RoundPublic,
+)
+from app.tournament import compute_standings
 
 
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -56,7 +62,14 @@ class EventStore:
             joined_at=utcnow(),
         )
 
-    def create_event(self, *, set_code: str, set_name: str, booster_type: str, host_name: str) -> tuple[EventRecord, PlayerRecord]:
+    def create_event(
+        self,
+        *,
+        set_code: str,
+        set_name: str,
+        booster_type: str,
+        host_name: str,
+    ) -> tuple[EventRecord, PlayerRecord]:
         with self._lock:
             host = self.new_player(host_name)
             event = EventRecord(
@@ -107,8 +120,32 @@ class EventStore:
                 name=p.name,
                 has_kit=p.kit is not None,
                 deck_count=p.deck.card_count,
+                deck_legal=p.deck.legal_for_sealed,
+                dropped=p.dropped,
             )
             for p in sorted(event.players.values(), key=lambda x: x.joined_at)
+        ]
+        rounds = [
+            RoundPublic(
+                number=round_record.number,
+                complete=round_record.complete,
+                matches=[
+                    MatchPublic(
+                        id=match.id,
+                        round_number=match.round_number,
+                        player_a_id=match.player_a_id,
+                        player_b_id=match.player_b_id,
+                        status=match.status,
+                        games_a=match.result.games_a,
+                        games_b=match.result.games_b,
+                        draws=match.result.draws,
+                        winner_id=match.winner_id,
+                        engine_game_id=match.engine_game_id,
+                    )
+                    for match in round_record.matches
+                ],
+            )
+            for round_record in event.rounds
         ]
         return EventPublic(
             code=event.code,
@@ -118,4 +155,8 @@ class EventStore:
             host_player_id=event.host_player_id,
             status=event.status,
             players=players,
+            current_round=len(event.rounds),
+            max_rounds=event.max_rounds,
+            rounds=rounds,
+            standings=compute_standings(event) if event.rounds else [],
         )
