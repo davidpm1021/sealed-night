@@ -27,6 +27,8 @@ test('two private browser seats open packs, recover, build decks and finish a to
   await friend.locator('#joinForm input[name=code]').fill(code);
   await friend.getByRole('button',{name:'Join prerelease',exact:true}).click();
   await expect(page.locator('.player-row')).toHaveCount(2);
+  await page.evaluate(()=>{window.oldSocket=state.ws;state.ws.close();});
+  await expect.poll(()=>page.evaluate(()=>state.ws!==window.oldSocket&&state.ws.readyState===1)).toBe(true);
   await page.getByRole('button',{name:'Generate prerelease kits'}).click();
   await expect(friend.getByRole('button',{name:'Open my prerelease kit'})).toBeVisible();
   await build(page);await build(friend);
@@ -73,4 +75,17 @@ test('battlefield has one polling loop, preserves inputs, handles errors and sto
   await expect(page.getByRole('heading',{name:'Game complete',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Pairings / sideboard'}).click();
   const before=reads;await page.waitForTimeout(2200);expect(reads).toBe(before);
+});
+
+
+test('private recovery code reclaims a seat in a new browser without adding a player',async({browser,page})=>{
+  const code=await host(page);
+  const recovery=await page.evaluate(()=>localStorage.getItem('prerelease-night-session-v1'));
+  const context=await browser.newContext();const recovered=await context.newPage();
+  recovered.on('dialog',dialog=>dialog.accept(recovery));
+  await recovered.goto('/');await recovered.getByRole('button',{name:'Enter recovery code'}).click();
+  await expect(recovered.locator('.event-code')).toHaveText(code);
+  await expect(recovered.locator('.player-row')).toHaveCount(1);
+  await expect(recovered.getByRole('button',{name:'Generate prerelease kits'})).toBeVisible();
+  await context.close();
 });

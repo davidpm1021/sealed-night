@@ -1,12 +1,9 @@
 from pathlib import Path
 from types import SimpleNamespace
-from concurrent.futures import ThreadPoolExecutor
-import threading
 from fastapi.testclient import TestClient
 from app.main import create_app
 from app.providers.demo import DemoProvider
 from app.store import EventStore
-from app.tournament import record_engine_game
 from test_api import FakeEngineManager, _save_legal_demo_deck
 
 

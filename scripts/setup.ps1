@@ -4,10 +4,15 @@ Push-Location $root
 try {
     $python = Join-Path $root '.venv\Scripts\python.exe'
     if (-not (Test-Path -LiteralPath $python)) {
-        if (Get-Command py -ErrorAction SilentlyContinue) {
-            & py -3.12 -m venv .venv
-        } elseif (Get-Command python -ErrorAction SilentlyContinue) {
+        $pythonOnPath = $false
+        if (Get-Command python -ErrorAction SilentlyContinue) {
+            & python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'
+            $pythonOnPath = $LASTEXITCODE -eq 0
+        }
+        if ($pythonOnPath) {
             & python -m venv .venv
+        } elseif (Get-Command py -ErrorAction SilentlyContinue) {
+            & py -3.12 -m venv .venv
         } else { throw 'Install Python 3.12 or newer from python.org (include the launcher), then rerun start.cmd.' }
         if ($LASTEXITCODE -ne 0) { throw 'Could not create the Python environment. Install Python 3.12 or newer and retry.' }
     }
