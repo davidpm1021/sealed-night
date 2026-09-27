@@ -96,3 +96,14 @@ input:focus, select:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgb
   .pack { min-height:130px; }
   .panel { padding:16px; }
 }
+
+
+.match-list { display: grid; gap: 10px; }
+.match-row { border: 1px solid var(--line); background: #11151e; border-radius: 12px; padding: 13px; }
+.match-main { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.match-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.btn-small { padding:7px 9px; font-size:12px; }
+.standings-table { display:grid; gap:6px; overflow-x:auto; }
+.standings-row { display:grid; grid-template-columns:44px minmax(140px,1fr) 54px 90px 90px; gap:10px; align-items:center; padding:9px 10px; border-radius:9px; min-width:500px; }
+.standings-row:nth-child(even) { background:#11151e; }
+.standings-head { color:var(--muted); font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid var(--line); border-radius:0; }
