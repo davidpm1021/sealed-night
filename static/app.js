@@ -186,6 +186,11 @@ function matchNode(match){
     <div class="match-actions"></div>`;
   const actions=wrap.querySelector('.match-actions');
   if(match.status==='pending' && isParticipant){
+    const play=document.createElement('button');
+    play.className='btn btn-primary btn-small';
+    play.textContent=match.engine_game_id?'Open game':'Play match';
+    play.onclick=()=>openRulesGame(match,play);
+    actions.appendChild(play);
     const presets=[
       ['I won 2-0',2,0,0],['I won 2-1',2,1,0],['Lost 1-2',1,2,0],['Lost 0-2',0,2,0],['Draw 1-1',1,1,0],
     ];
@@ -197,6 +202,141 @@ function matchNode(match){
     presets.forEach(([label,w,l,d])=>{const btn=document.createElement('button');btn.className='btn btn-small';btn.textContent=label;btn.onclick=()=>reportMatch(match,w,l,d,btn);actions.appendChild(btn);});
   }
   return wrap;
+}
+
+async function openRulesGame(match,btn){
+  if(btn)setBusy(btn,true,'Starting XMage…');
+  state.gameMatchId=match.id;
+  try{
+    await api(`/api/events/${state.event.code}/matches/${match.id}/game/start`,{
+      method:'POST',
+      body:JSON.stringify({player_id:state.session.playerId,token:state.session.token}),
+    });
+    await fetchRulesGame(match,true);
+  }catch(err){
+    if(state.screen==='tournament')showError(app,err);
+    else renderGameError(match,err);
+    if(btn)setBusy(btn,false);
+  }
+}
+
+async function fetchRulesGame(match,first=false){
+  if(first){
+    state.screen='game';
+    app.innerHTML='<section class="panel"><h2>Connecting to the rules engine…</h2><p>XMage is preparing the table and your private player bridge.</p></section>';
+  }
+  try{
+    const snapshot=await api(`/api/events/${state.event.code}/matches/${match.id}/game?player_id=${encodeURIComponent(state.session.playerId)}&token=${encodeURIComponent(state.session.token)}`);
+    if(state.screen!=='game')return;
+    renderRulesGame(match,snapshot);
+  }catch(err){
+    if(state.screen==='game')renderGameError(match,err);
+  }
+}
+
+function gameCardHtml(card){
+  const tapped=card.tapped?' tapped':'';
+  const stats=(card.power!==undefined && card.toughness!==undefined)?`<span class="game-card-stats">${card.power}/${card.toughness}</span>`:'';
+  const cost=card.mana_cost?`<span class="muted small">${escapeHtml(card.mana_cost)}</span>`:'';
+  const rules=Array.isArray(card.rules)?card.rules.join(' · '):(card.rules||'');
+  return `<div class="game-card${tapped}" title="${escapeHtml(rules)}"><div class="game-card-name">${escapeHtml(card.name||'Unknown')}</div><div class="game-card-foot">${cost}${stats}</div></div>`;
+}
+
+function gameZone(title,cards,empty='Empty'){
+  const list=cards||[];
+  return `<section class="game-zone"><div class="game-zone-title"><strong>${escapeHtml(title)}</strong><span class="badge">${list.length}</span></div><div class="game-zone-cards">${list.length?list.map(gameCardHtml).join(''):`<span class="muted small">${empty}</span>`}</div></section>`;
+}
+
+function actionPanelHtml(action){
+  if(!action || !action.action_pending){
+    return `<div class="notice">No decision is waiting on you right now.</div><div class="actions game-action-buttons"><button id="passPriority" class="btn btn-primary">Pass priority / wait</button><button id="refreshGame" class="btn">Refresh</button></div>`;
+  }
+  const choices=action.choices||[];
+  const boolean=action.response_type==='boolean'
+    ? '<button class="btn btn-primary game-bool" data-answer="yes">Yes</button><button class="btn game-bool" data-answer="no">No</button>'
+    : '';
+  const amount=action.response_type==='amount'
+    ? '<div class="game-inline-input"><input id="gameAmount" type="number" min="0" value="0"><button id="submitAmount" class="btn btn-primary">Choose amount</button></div>'
+    : '';
+  return `<div class="game-decision"><div class="eyebrow">Decision required</div><h3>${escapeHtml(action.message||action.action_type||'Choose an action')}</h3><div class="muted small">${escapeHtml(action.context||'')}</div>
+    <div class="game-choice-grid">${choices.map(choice=>`<button class="btn game-choice" data-choice="${choice.index}"><strong>${escapeHtml(choice.name||choice.text||choice.action||`Choice ${choice.index}`)}</strong><span>${escapeHtml(choice.action||choice.mana_cost||'')}</span></button>`).join('')}</div>
+    <div class="actions game-action-buttons">${boolean}${amount}<button id="passPriority" class="btn">Pass priority</button><button id="refreshGame" class="btn">Refresh</button></div>
+  </div>`;
+}
+
+function renderRulesGame(match,snapshot){
+  state.screen='game';
+  const gs=snapshot.state||{};
+  const action=snapshot.action||{};
+  const players=gs.players||[];
+  const me=players.find(p=>p.is_you)||players[0]||{};
+  const opponent=players.find(p=>!p.is_you)||{};
+  const stack=gs.stack||[];
+  statusPill.textContent=`Turn ${gs.turn??'?'} · ${String(gs.phase||gs.step||'game').replaceAll('_',' ')}`;
+  app.innerHTML=`
+    <section class="game-topbar">
+      <button id="backTournament" class="btn">← Pairings</button>
+      <div class="game-turn"><strong>Turn ${gs.turn??'?'}</strong><span>${escapeHtml(String(gs.phase||''))}</span><span>Priority: ${escapeHtml(gs.priority_player||'')}</span></div>
+      <button id="concedeGame" class="btn btn-danger">Concede</button>
+    </section>
+    <section class="battlefield">
+      <div class="player-strip opponent-strip"><div><strong>${escapeHtml(opponent.name||playerName(match.player_a_id===state.session.playerId?match.player_b_id:match.player_a_id))}</strong><span class="muted"> · ${opponent.hand_size??'?'} cards · ${opponent.library_size??'?'} library</span></div><div class="life-total">${opponent.life??20}</div></div>
+      ${gameZone('Opponent battlefield',opponent.battlefield)}
+      <section class="game-middle">${gameZone('Stack',stack,'Stack empty')}${gameZone('Opponent graveyard',opponent.graveyard,'No cards')}</section>
+      ${gameZone('Your battlefield',me.battlefield)}
+      <div class="player-strip"><div><strong>${escapeHtml(me.name||state.session.name)}</strong><span class="muted"> · ${me.library_size??'?'} library</span></div><div class="life-total">${me.life??20}</div></div>
+      ${gameZone('Your hand',me.hand,'No cards in hand')}
+      <section class="game-middle">${gameZone('Your graveyard',me.graveyard,'No cards')}${gameZone('Exile',me.exile,'No cards')}</section>
+    </section>
+    <section class="panel game-actions-panel">${actionPanelHtml(action)}</section>`;
+  document.querySelector('#backTournament').onclick=renderTournament;
+  document.querySelector('#refreshGame')?.addEventListener('click',()=>fetchRulesGame(match));
+  document.querySelectorAll('.game-choice').forEach(btn=>btn.onclick=()=>chooseRulesAction(match,{choice:String(btn.dataset.choice)},btn));
+  document.querySelectorAll('.game-bool').forEach(btn=>btn.onclick=()=>chooseRulesAction(match,{choice:btn.dataset.answer},btn));
+  document.querySelector('#submitAmount')?.addEventListener('click',e=>chooseRulesAction(match,{amount:Number(document.querySelector('#gameAmount').value)},e.currentTarget));
+  document.querySelector('#passPriority')?.addEventListener('click',e=>passRulesPriority(match,e.currentTarget));
+  document.querySelector('#concedeGame').onclick=()=>concedeRulesGame(match);
+  window.setTimeout(()=>{if(state.screen==='game'&&state.gameMatchId===match.id)fetchRulesGame(match);},1800);
+}
+
+async function chooseRulesAction(match,args,btn){
+  setBusy(btn,true,'Resolving…');
+  try{
+    await api(`/api/events/${state.event.code}/matches/${match.id}/game/action`,{
+      method:'POST',
+      body:JSON.stringify({player_id:state.session.playerId,token:state.session.token,...args}),
+    });
+    await fetchRulesGame(match);
+  }catch(err){showError(app.querySelector('.game-actions-panel'),err);setBusy(btn,false);}
+}
+
+async function passRulesPriority(match,btn){
+  setBusy(btn,true,'Waiting for opponent…');
+  try{
+    await api(`/api/events/${state.event.code}/matches/${match.id}/game/pass`,{
+      method:'POST',
+      body:JSON.stringify({player_id:state.session.playerId,token:state.session.token}),
+    });
+    await fetchRulesGame(match);
+  }catch(err){showError(app.querySelector('.game-actions-panel'),err);setBusy(btn,false);}
+}
+
+async function concedeRulesGame(match){
+  if(!confirm('Concede this game?'))return;
+  try{
+    await api(`/api/events/${state.event.code}/matches/${match.id}/game/concede`,{
+      method:'POST',
+      body:JSON.stringify({player_id:state.session.playerId,token:state.session.token}),
+    });
+    renderTournament();
+  }catch(err){showError(app,err);}
+}
+
+function renderGameError(match,err){
+  state.screen='game';
+  app.innerHTML=`<section class="panel"><div class="eyebrow">Rules engine</div><h2>Could not open the game</h2><div class="error">${escapeHtml(err.message||String(err))}</div><div class="actions"><button id="retryGame" class="btn btn-primary">Retry</button><button id="backTournament" class="btn">Pairings</button></div></section>`;
+  document.querySelector('#retryGame').onclick=e=>openRulesGame(match,e.currentTarget);
+  document.querySelector('#backTournament').onclick=renderTournament;
 }
 
 async function reportMatch(match,gamesWon,gamesLost,draws,btn){
