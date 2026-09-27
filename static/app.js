@@ -107,19 +107,112 @@ function renderLobby() {
   state.screen='lobby'; if (!state.event) return renderHome();
   statusPill.textContent=`${state.event.set_name} · ${state.event.status}`;
   const share=`${location.origin}${location.pathname}?event=${state.event.code}`;
+  const allLegal=state.event.players.length>=2 && state.event.players.every(p=>p.deck_legal || p.dropped);
+  const hostAction=state.event.status==='lobby'
+    ? (isHost()?'<button id="startBtn" class="btn btn-primary">Generate prerelease kits</button>':'')
+    : state.event.status==='deckbuilding'
+      ? (isHost()?'<button id="tournamentStartBtn" class="btn btn-primary">Start Round 1</button>':'')
+      : '<button id="tournamentBtn" class="btn btn-primary">View tournament</button>';
   app.innerHTML=`
     <section class="panel">
       <div class="lobby-head"><div><div class="eyebrow">Event lobby</div><h1 style="font-size:44px;margin-bottom:6px">${escapeHtml(state.event.set_name)}</h1><div class="muted">${escapeHtml(state.event.set_code)} · ${escapeHtml(state.event.booster_type)} boosters</div></div><button id="leaveBtn" class="btn">Leave</button></div>
       <div class="muted small">Share this code</div><div class="event-code">${escapeHtml(state.event.code)}</div>
-      <div class="actions"><button id="copyBtn" class="btn">Copy invite link</button>${isHost()?'<button id="startBtn" class="btn btn-primary">Generate prerelease kits</button>':''}</div>
+      <div class="actions"><button id="copyBtn" class="btn">Copy invite link</button>${hostAction}</div>
       <div class="section-title"><h2>Players</h2><span class="badge">${state.event.players.length}</span></div>
-      <div class="player-list">${state.event.players.map(p=>`<div class="player-row"><div><span class="dot"></span><strong>${escapeHtml(p.name)}</strong>${p.id===state.event.host_player_id?' <span class="muted small">Host</span>':''}</div><span class="muted small">${p.deck_count?`${p.deck_count} cards`:p.has_kit?'Kit ready':'Waiting'}</span></div>`).join('')}</div>
-      ${state.event.status!=='lobby'?'<div class="notice">Kits are generated. Your sealed pool is private to your player session.</div><div style="margin-top:14px"><button id="kitBtn" class="btn btn-primary">Open my prerelease kit</button></div>':''}
+      <div class="player-list">${state.event.players.map(p=>`<div class="player-row"><div><span class="dot"></span><strong>${escapeHtml(p.name)}</strong>${p.id===state.event.host_player_id?' <span class="muted small">Host</span>':''}</div><span class="muted small">${p.deck_count?`${p.deck_count} cards · ${p.deck_legal?'Ready':'Needs 40'}`:p.has_kit?'Kit ready':'Waiting'}</span></div>`).join('')}</div>
+      ${state.event.status!=='lobby'?'<div class="notice">Your sealed pool stays private. You can keep editing your deck between rounds.</div><div class="actions" style="margin-top:14px"><button id="kitBtn" class="btn">Open my prerelease kit</button></div>':''}
+      ${state.event.status==='deckbuilding' && isHost() && !allLegal?'<p class="muted small">Round 1 unlocks when every active player has saved a legal 40+ card deck.</p>':''}
     </section>`;
   document.querySelector('#leaveBtn').onclick=clearSession;
   document.querySelector('#copyBtn').onclick=async()=>{ await navigator.clipboard.writeText(share); document.querySelector('#copyBtn').textContent='Copied'; };
   document.querySelector('#startBtn')?.addEventListener('click',startEvent);
+  document.querySelector('#tournamentStartBtn')?.addEventListener('click',startTournament);
+  document.querySelector('#tournamentBtn')?.addEventListener('click',renderTournament);
   document.querySelector('#kitBtn')?.addEventListener('click',loadKit);
+}
+
+async function startTournament(e){
+  const btn=e.currentTarget; setBusy(btn,true,'Pairing Round 1…');
+  try{
+    state.event=await api(`/api/events/${state.event.code}/tournament/start`,{method:'POST',body:JSON.stringify({player_id:state.session.playerId,token:state.session.token})});
+    renderTournament();
+  }catch(err){ showError(app.querySelector('.panel'),err); setBusy(btn,false); }
+}
+
+function playerName(id){
+  if(!id) return 'BYE';
+  return state.event.players.find(p=>p.id===id)?.name || 'Unknown player';
+}
+
+function renderTournament(){
+  state.screen='tournament';
+  if(!state.event || !['playing','complete'].includes(state.event.status)) return renderLobby();
+  statusPill.textContent=`${state.event.set_name} · ${state.event.status==='complete'?'Final standings':`Round ${state.event.current_round}/${state.event.max_rounds}`}`;
+  const round=state.event.rounds.at(-1);
+  const standings=state.event.standings || [];
+  const roundDone=round?.complete;
+  const canNext=isHost() && state.event.status==='playing' && roundDone;
+  app.innerHTML=`
+    <section class="kit-header">
+      <div><div class="eyebrow">${state.event.status==='complete'?'Event complete':`Round ${round?.number || 0} of ${state.event.max_rounds}`}</div><h1 style="font-size:48px">${state.event.status==='complete'?'Final standings':'Pairings'}</h1><p>Best-of-three matches. Results update standings for everyone in the lobby.</p></div>
+      <div class="actions"><button id="lobbyBtn" class="btn">Lobby</button><button id="deckBtn" class="btn">Deck / sideboard</button>${canNext?'<button id="nextRoundBtn" class="btn btn-primary">Next round</button>':''}</div>
+    </section>
+    ${round?`<section class="panel"><div class="section-title"><h2>Round ${round.number}</h2><span class="badge">${round.complete?'Complete':'In progress'}</span></div><div id="pairings" class="match-list"></div></section>`:''}
+    <section class="panel" style="margin-top:16px"><div class="section-title"><h2>Standings</h2><span class="badge">${standings.length} players</span></div>
+      <div class="standings-table">
+        <div class="standings-row standings-head"><span>#</span><span>Player</span><span>Pts</span><span>Record</span><span>Games</span></div>
+        ${standings.map(s=>`<div class="standings-row"><span>${s.rank}</span><strong>${escapeHtml(s.name)}</strong><span>${s.match_points}</span><span>${s.match_wins}-${s.match_losses}-${s.match_draws}</span><span>${s.game_wins}-${s.game_losses}-${s.game_draws}</span></div>`).join('')}
+      </div>
+    </section>`;
+  document.querySelector('#lobbyBtn').onclick=renderLobby;
+  document.querySelector('#deckBtn').onclick=async()=>{ if(!state.kit) await loadKit(); if(state.kit) renderBuilder(); };
+  document.querySelector('#nextRoundBtn')?.addEventListener('click',nextRound);
+  const list=document.querySelector('#pairings');
+  if(round && list){
+    for(const match of round.matches) list.appendChild(matchNode(match));
+  }
+}
+
+function matchNode(match){
+  const wrap=document.createElement('div'); wrap.className='match-row';
+  const a=playerName(match.player_a_id), b=playerName(match.player_b_id);
+  const isParticipant=[match.player_a_id,match.player_b_id].includes(state.session.playerId);
+  const hostOverride=isHost() && !isParticipant && match.player_b_id;
+  const score=match.status==='complete'
+    ? (match.player_b_id?`${match.games_a}-${match.games_b}${match.draws?`-${match.draws}`:''}`:'BYE')
+    : 'Pending';
+  wrap.innerHTML=`
+    <div class="match-main"><div><strong>${escapeHtml(a)}</strong><span class="muted"> vs </span><strong>${escapeHtml(b)}</strong></div><span class="badge">${score}</span></div>
+    <div class="match-actions"></div>`;
+  const actions=wrap.querySelector('.match-actions');
+  if(match.status==='pending' && isParticipant){
+    const presets=[
+      ['I won 2-0',2,0,0],['I won 2-1',2,1,0],['Lost 1-2',1,2,0],['Lost 0-2',0,2,0],['Draw 1-1',1,1,0],
+    ];
+    presets.forEach(([label,w,l,d])=>{const btn=document.createElement('button');btn.className='btn btn-small';btn.textContent=label;btn.onclick=()=>reportMatch(match,w,l,d,btn);actions.appendChild(btn);});
+  } else if(match.status==='pending' && hostOverride){
+    const presets=[
+      [`${a} 2-0`,2,0,0],[`${a} 2-1`,2,1,0],[`${b} 2-1`,1,2,0],[`${b} 2-0`,0,2,0],['Draw 1-1',1,1,0],
+    ];
+    presets.forEach(([label,w,l,d])=>{const btn=document.createElement('button');btn.className='btn btn-small';btn.textContent=label;btn.onclick=()=>reportMatch(match,w,l,d,btn);actions.appendChild(btn);});
+  }
+  return wrap;
+}
+
+async function reportMatch(match,gamesWon,gamesLost,draws,btn){
+  setBusy(btn,true,'Saving…');
+  try{
+    const result=await api(`/api/events/${state.event.code}/matches/${match.id}/report`,{method:'POST',body:JSON.stringify({player_id:state.session.playerId,token:state.session.token,games_won:gamesWon,games_lost:gamesLost,draws})});
+    state.event=result.event; renderTournament();
+  }catch(err){ showError(app.querySelector('.panel'),err); setBusy(btn,false); }
+}
+
+async function nextRound(e){
+  const btn=e.currentTarget; setBusy(btn,true,'Pairing…');
+  try{
+    state.event=await api(`/api/events/${state.event.code}/tournament/next-round`,{method:'POST',body:JSON.stringify({player_id:state.session.playerId,token:state.session.token})});
+    renderTournament();
+  }catch(err){ showError(app.querySelector('.panel'),err); setBusy(btn,false); }
 }
 
 async function startEvent(e){
@@ -258,7 +351,7 @@ function connectWs(){
     try{
       const msg=JSON.parse(e.data); if(msg.type==='event'){
         state.event=msg.event;
-        if(state.screen==='lobby')renderLobby();
+        if(state.screen==='lobby')renderLobby(); else if(state.screen==='tournament')renderTournament();
       }
     }catch{}
   };
