@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -157,3 +158,93 @@ def test_four_player_tournament_round_and_reporting(tmp_path: Path):
     )
     assert next_round.status_code == 200, next_round.text
     assert next_round.json()["current_round"] == 2
+
+
+class FakeEngineManager:
+    def __init__(self):
+        self.games = {}
+
+    def status(self):
+        return {"installed": True, "running": True, "active_matches": list(self.games), "error": None}
+
+    def start_match(self, event, match):
+        match.engine_game_id = f"table-{match.id}"
+        game = SimpleNamespace(runtime=SimpleNamespace(table_id=match.engine_game_id))
+        self.games[match.id] = game
+        return game
+
+    def snapshot(self, match_id, player_id):
+        if match_id not in self.games:
+            raise KeyError("not running")
+        return {
+            "state": {
+                "available": True,
+                "turn": 1,
+                "phase": "PRECOMBAT_MAIN",
+                "active_player": player_id,
+                "players": [{"name": player_id, "life": 20, "is_you": True, "hand": []}],
+                "stack": [],
+                "combat": [],
+            },
+            "action": {"action_pending": True, "response_type": "select", "choices": []},
+        }
+
+    def choose_action(self, match_id, player_id, arguments):
+        return {"success": True, "player_id": player_id, "arguments": arguments}
+
+    def pass_priority(self, match_id, player_id, *, until=None, board_cursor=None):
+        return {"action_pending": False, "until": until, "board_cursor": board_cursor}
+
+    def concede(self, match_id, player_id):
+        return {"success": True, "conceded": player_id}
+
+
+def test_rules_engine_api_keeps_game_bound_to_seated_players(tmp_path: Path):
+    engine = FakeEngineManager()
+    app = create_app(DemoProvider(), EventStore(tmp_path / "events"), engine_manager=engine)
+    client = TestClient(app)
+
+    host = client.post("/api/events", json={"host_name": "Host", "set_code": "DEMO"}).json()
+    code = host["event"]["code"]
+    guest = client.post(f"/api/events/{code}/join", json={"player_name": "Guest"}).json()
+    outsider = client.post(f"/api/events/{code}/join", json={"player_name": "Outsider"}).json()
+
+    started = client.post(
+        f"/api/events/{code}/start",
+        json={"player_id": host["player_id"], "token": host["token"]},
+    )
+    assert started.status_code == 200
+    for session in [host, guest, outsider]:
+        _save_legal_demo_deck(client, code, session)
+
+    tournament = client.post(
+        f"/api/events/{code}/tournament/start",
+        json={"player_id": host["player_id"], "token": host["token"]},
+    ).json()
+    match = next(m for m in tournament["rounds"][0]["matches"] if m["player_b_id"] is not None)
+    sessions = {s["player_id"]: s for s in [host, guest, outsider]}
+    seated = sessions[match["player_a_id"]]
+
+    launched = client.post(
+        f"/api/events/{code}/matches/{match['id']}/game/start",
+        json={"player_id": seated["player_id"], "token": seated["token"]},
+    )
+    assert launched.status_code == 200, launched.text
+    assert launched.json()["table_id"].startswith("table-")
+
+    snapshot = client.get(
+        f"/api/events/{code}/matches/{match['id']}/game",
+        params={"player_id": seated["player_id"], "token": seated["token"]},
+    )
+    assert snapshot.status_code == 200
+    assert snapshot.json()["state"]["players"][0]["is_you"] is True
+
+    outsider_session = next(
+        s for s in [host, guest, outsider]
+        if s["player_id"] not in {match["player_a_id"], match["player_b_id"]}
+    )
+    forbidden = client.get(
+        f"/api/events/{code}/matches/{match['id']}/game",
+        params={"player_id": outsider_session["player_id"], "token": outsider_session["token"]},
+    )
+    assert forbidden.status_code == 403
