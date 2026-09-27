@@ -34,3 +34,5 @@ def test_export_xmage_deck_uses_printings_and_unlimited_basics():
     assert "NAME:Dave Round 1" in text
     assert "1 [10E:268] Grizzly Bears" in text
     assert "39 [BFZ:250a] Plains" in text
+    assert "SB: 1 [10E:268] Grizzly Bears" in text  # prerelease promo copy
+    assert "SB: 40 [BFZ:255a] Island" in text
