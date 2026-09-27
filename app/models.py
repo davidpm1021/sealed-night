@@ -142,6 +142,23 @@ class ReportMatchRequest(AuthRequest):
     draws: int = Field(default=0, ge=0, le=9)
 
 
+class GameActionRequest(AuthRequest):
+    choice: str | None = None
+    amount: int | None = None
+    amounts: list[int] | None = None
+    pile: int | None = None
+    text: str | None = None
+    mana_plan: str | None = None
+    auto_tap: bool | None = None
+    attackers: str | None = None
+    blockers: str | None = None
+
+
+class GamePassRequest(AuthRequest):
+    until: str | None = None
+    board_cursor: int | None = None
+
+
 class PlayerPublic(BaseModel):
     id: str
     name: str
