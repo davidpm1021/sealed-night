@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import secrets
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from app.models import EventRecord, MatchRecord, MatchResult, RoundRecord, StandingPublic
-from app.store import utcnow
+def utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass
