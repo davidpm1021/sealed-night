@@ -10,11 +10,14 @@ from fastapi.staticfiles import StaticFiles
 from app.models import (
     AuthRequest,
     CreateEventRequest,
+    GameActionRequest,
+    GamePassRequest,
     JoinEventRequest,
     ReportMatchRequest,
     SaveDeckRequest,
     SessionResponse,
 )
+from app.engine.service import GameEngineManager
 from app.prerelease import generate_kit
 from app.providers import build_provider
 from app.providers.base import CardProvider
@@ -53,9 +56,14 @@ class EventHub:
             await self.disconnect(code, ws)
 
 
-def create_app(provider: CardProvider | None = None, store: EventStore | None = None) -> FastAPI:
+def create_app(
+    provider: CardProvider | None = None,
+    store: EventStore | None = None,
+    engine_manager: GameEngineManager | None = None,
+) -> FastAPI:
     provider = provider or build_provider()
     store = store or EventStore()
+    engine_manager = engine_manager or GameEngineManager()
     hub = EventHub()
     app = FastAPI(title="Prerelease Night", version="0.2.0")
 
@@ -272,6 +280,102 @@ def create_app(provider: CardProvider | None = None, store: EventStore | None = 
         store.save(event)
         await publish(event)
         return {"ok": True, "match": match, "event": store.public(event)}
+
+    @app.get("/api/engine/status")
+    async def engine_status():
+        return await asyncio.to_thread(engine_manager.status)
+
+    @app.post("/api/events/{code}/matches/{match_id}/game/start")
+    async def start_rules_game(code: str, match_id: str, auth: AuthRequest):
+        event = event_or_404(code)
+        player = authenticate(event, auth.player_id, auth.token)
+        match = find_match(event, match_id)
+        if match is None:
+            raise HTTPException(status_code=404, detail="Match not found.")
+        if player.id not in {match.player_a_id, match.player_b_id, event.host_player_id}:
+            raise HTTPException(status_code=403, detail="Only a player in this match or the host can launch it.")
+        if match.status == "complete":
+            raise HTTPException(status_code=409, detail="This match is already complete.")
+        try:
+            game = await asyncio.to_thread(engine_manager.start_match, event, match)
+        except (ValueError, KeyError, PermissionError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Rules engine could not start: {exc}")
+        store.save(event)
+        await publish(event)
+        return {"ok": True, "table_id": game.runtime.table_id, "match_id": match.id}
+
+    @app.get("/api/events/{code}/matches/{match_id}/game")
+    async def get_rules_game(code: str, match_id: str, player_id: str, token: str):
+        event = event_or_404(code)
+        player = authenticate(event, player_id, token)
+        match = find_match(event, match_id)
+        if match is None:
+            raise HTTPException(status_code=404, detail="Match not found.")
+        if player.id not in {match.player_a_id, match.player_b_id}:
+            raise HTTPException(status_code=403, detail="Only a seated player can view this game.")
+        try:
+            return await asyncio.to_thread(engine_manager.snapshot, match.id, player.id)
+        except KeyError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Rules engine unavailable: {exc}")
+
+    @app.post("/api/events/{code}/matches/{match_id}/game/action")
+    async def rules_game_action(code: str, match_id: str, req: GameActionRequest):
+        event = event_or_404(code)
+        player = authenticate(event, req.player_id, req.token)
+        match = find_match(event, match_id)
+        if match is None:
+            raise HTTPException(status_code=404, detail="Match not found.")
+        if player.id not in {match.player_a_id, match.player_b_id}:
+            raise HTTPException(status_code=403, detail="Only a seated player can act in this game.")
+        arguments = req.model_dump(exclude={"player_id", "token"})
+        try:
+            return await asyncio.to_thread(engine_manager.choose_action, match.id, player.id, arguments)
+        except (KeyError, PermissionError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Rules engine action failed: {exc}")
+
+    @app.post("/api/events/{code}/matches/{match_id}/game/pass")
+    async def rules_game_pass(code: str, match_id: str, req: GamePassRequest):
+        event = event_or_404(code)
+        player = authenticate(event, req.player_id, req.token)
+        match = find_match(event, match_id)
+        if match is None:
+            raise HTTPException(status_code=404, detail="Match not found.")
+        if player.id not in {match.player_a_id, match.player_b_id}:
+            raise HTTPException(status_code=403, detail="Only a seated player can act in this game.")
+        try:
+            return await asyncio.to_thread(
+                engine_manager.pass_priority,
+                match.id,
+                player.id,
+                until=req.until,
+                board_cursor=req.board_cursor,
+            )
+        except (KeyError, PermissionError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Rules engine pass failed: {exc}")
+
+    @app.post("/api/events/{code}/matches/{match_id}/game/concede")
+    async def rules_game_concede(code: str, match_id: str, auth: AuthRequest):
+        event = event_or_404(code)
+        player = authenticate(event, auth.player_id, auth.token)
+        match = find_match(event, match_id)
+        if match is None:
+            raise HTTPException(status_code=404, detail="Match not found.")
+        if player.id not in {match.player_a_id, match.player_b_id}:
+            raise HTTPException(status_code=403, detail="Only a seated player can concede this game.")
+        try:
+            return await asyncio.to_thread(engine_manager.concede, match.id, player.id)
+        except (KeyError, PermissionError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Rules engine concede failed: {exc}")
 
     @app.websocket("/ws/events/{code}")
     async def event_ws(code: str, ws: WebSocket):
