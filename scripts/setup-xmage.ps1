@@ -60,18 +60,11 @@ if ($CheckOnly) {
 }
 
 New-Item -ItemType Directory -Force -Path $vendor | Out-Null
-if (-not (Test-Path $mageBench)) {
-    git clone https://github.com/GregorStocks/mage-bench.git $mageBench
-    if ($LASTEXITCODE -ne 0) { throw "Could not clone mage-bench." }
-}
+. "$PSScriptRoot\xmage-checkout.ps1"
+Initialize-XMageCheckout -Directory $mageBench -Revision $mageBenchCommit
 
 Push-Location $mageBench
 try {
-    git fetch origin
-    if ($LASTEXITCODE -ne 0) { throw "Could not fetch mage-bench." }
-    git checkout --detach $mageBenchCommit
-    if ($LASTEXITCODE -ne 0) { throw "Could not check out the pinned engine revision." }
-
     Write-Host "Building the XMage server, observer, and headless bridge..." -ForegroundColor Cyan
     mvn -q -pl Mage.Server,Mage.Client.Observer,Mage.Client.Bridge -am -DskipTests install
     if ($LASTEXITCODE -ne 0) { throw "mage-bench/XMage build failed." }
