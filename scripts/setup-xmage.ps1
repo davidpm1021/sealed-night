@@ -1,5 +1,6 @@
 param(
-    [switch]$InstallDependencies
+    [switch]$InstallDependencies,
+    [switch]$CheckOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,12 +36,28 @@ if (Need-Command "mvn") {
     throw "Maven is required. Rerun with: .\scripts\setup-xmage.ps1 -InstallDependencies"
 }
 
-$javaVersion = (& java -version 2>&1 | Select-Object -First 1)
-if ($javaVersion -notmatch 'version "(\d+)' -or [int]$Matches[1] -lt 21) {
+# Java's legacy -version writes to stderr. Windows PowerShell 5.1 turns
+# redirected native stderr into NativeCommandError under ErrorAction Stop.
+# Java 9+ --version writes to stdout; capture all output before inspecting it.
+$javaOutput = @(& java --version)
+$javaExitCode = $LASTEXITCODE
+$javaVersion = $javaOutput | Select-Object -First 1
+if ($javaExitCode -ne 0 -or $javaVersion -notmatch '^(?:openjdk|java)\s+(\d+)' -or [int]$Matches[1] -lt 21) {
     throw 'Java 21 or newer is required. Install it and open a new terminal before retrying.'
 }
 Write-Host "Java: $javaVersion"
-Write-Host "Maven: $(& mvn -version | Select-Object -First 1)"
+$mavenOutput = @(& mvn -version)
+if ($LASTEXITCODE -ne 0) { throw 'Maven could not start. Check JAVA_HOME and run mvn -version.' }
+# Maven may use JAVA_HOME even when java on PATH is a newer installation.
+$mavenText = ($mavenOutput -join "`n") -replace '\x1b\[[0-9;]*m', ''
+if ($mavenText -notmatch 'Java version:\s*(\d+)' -or [int]$Matches[1] -lt 21) {
+    throw 'Maven must use Java 21 or newer. Set JAVA_HOME to your Java 21 JDK, then run mvn -version.'
+}
+Write-Host "Maven: $($mavenOutput | Select-Object -First 1)"
+if ($CheckOnly) {
+    Write-Host 'XMage prerequisites passed.' -ForegroundColor Green
+    return
+}
 
 New-Item -ItemType Directory -Force -Path $vendor | Out-Null
 if (-not (Test-Path $mageBench)) {
