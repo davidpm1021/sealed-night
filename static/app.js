@@ -454,9 +454,13 @@ function cardNode(card,{selected=false,onClick=null}={}){
   const node=cardTemplate.content.firstElementChild.cloneNode(true);
   if(selected) node.classList.add('selected'); if(card.foil) node.classList.add('foil');
   const img=node.querySelector('.card-art');
-  if(card.image_url){ img.src=card.image_url; img.alt=card.name; img.onerror=()=>img.removeAttribute('src'); }
+  img.alt=card.name;
+  img.onload=()=>node.classList.add('image-loaded');
+  img.onerror=()=>{node.classList.remove('image-loaded');img.removeAttribute('src');};
+  if(card.image_url) img.src=card.image_url;
   node.querySelector('.card-placeholder-name').textContent=card.name;
   node.querySelector('.card-placeholder-type').textContent=card.type_line || card.rarity;
+  node.querySelector('.card-placeholder-text').textContent=card.oracle_text || 'Card image unavailable';
   node.querySelector('.card-name').textContent=card.name;
   node.querySelector('.card-cost').textContent=card.mana_cost || '';
   node.querySelector('.card-type').textContent=card.type_line || card.rarity;

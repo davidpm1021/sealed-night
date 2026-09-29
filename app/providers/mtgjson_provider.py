@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import random
 import threading
 from typing import Any
@@ -22,6 +23,29 @@ class MtgjsonProvider(CardProvider):
         self._sdk = None
         self._lock = threading.RLock()
         self._promo_cache: dict[str, list[Any]] = {}
+        self._image_ids: dict[str, str | None] = {}
+
+    def hydrate_card_images(self, cards: list[CardData]) -> None:
+        # The SDK's cards/booster queries omit the separate card_identifiers
+        # table. Resolve it lazily so older saved pools also gain their images.
+        with self._lock:
+            try:
+                for card in cards:
+                    if card.image_url:
+                        continue
+                    image_id = card.scryfall_id
+                    if not image_id:
+                        if card.id not in self._image_ids:
+                            ids = self._get_sdk().identifiers.get_identifiers(card.id) or {}
+                            self._image_ids[card.id] = ids.get('scryfallId') or ids.get('scryfall_id')
+                        image_id = self._image_ids[card.id]
+                    if image_id and len(image_id) > 2:
+                        card.scryfall_id = image_id
+                        card.image_url = f'https://cards.scryfall.io/normal/front/{image_id[0]}/{image_id[1]}/{image_id}.jpg'
+            except Exception:
+                # Artwork is optional; a download failure must not hide the pool.
+                # Failed lookups are not cached, so the next kit read can retry.
+                logging.getLogger(__name__).warning('Card image identifiers unavailable; using text cards', exc_info=True)
 
     def _get_sdk(self):
         with self._lock:

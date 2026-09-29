@@ -1,5 +1,29 @@
 const {test,expect}=require('@playwright/test');
 
+test('card art loads or shows readable rules when absent or broken',async({page})=>{
+  await page.goto('/');
+  await page.route('**/missing-art.jpg',route=>route.fulfill({status:404,body:''}));
+  const pixel='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+  await page.evaluate(pixel=>{
+    const base={name:'Test creature',type_line:'Creature',oracle_text:'Flying',rarity:'common'};
+    document.querySelector('#app').replaceChildren(
+      cardNode({...base,name:'No image'}),
+      cardNode({...base,name:'Failed image',image_url:'/missing-art.jpg'}),
+      cardNode({...base,name:'Loaded image',image_url:pixel})
+    );
+  },pixel);
+  for(const name of ['No image','Failed image']){
+    const card=page.locator('.card').filter({has:page.locator('.card-name',{hasText:name})});
+    await expect(card.locator('.card-placeholder')).toBeVisible();
+    await expect(card.locator('.card-placeholder-text')).toHaveText('Flying');
+    await expect(card).not.toHaveClass(/image-loaded/);
+  }
+  const loaded=page.locator('.card').filter({has:page.locator('.card-name',{hasText:'Loaded image'})});
+  await expect(loaded).toHaveClass(/image-loaded/);
+  await expect(loaded.locator('.card-art')).toBeVisible();
+  await expect(loaded.locator('.card-placeholder')).toBeHidden();
+});
+
 async function host(page){
   await page.goto('/');
   await page.locator('#hostForm input[name=name]').fill('Host');

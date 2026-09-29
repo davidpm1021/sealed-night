@@ -197,7 +197,10 @@ def create_app(
         player = authenticate(event, player_id, token)
         if player.kit is None:
             raise HTTPException(status_code=409, detail="The prerelease has not started yet.")
-        return {"kit": player.kit, "deck": player.deck}
+        kit = player.kit.model_copy(deep=True)
+        cards = [kit.promo] + [card for pack in kit.packs for card in pack.cards]
+        await asyncio.to_thread(provider.hydrate_card_images, cards)
+        return {"kit": kit, "deck": player.deck}
 
     @app.put("/api/events/{code}/deck")
     async def save_deck(code: str, req: SaveDeckRequest):

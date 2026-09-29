@@ -7,6 +7,26 @@ from app.providers.demo import DemoProvider
 from app.store import EventStore
 
 
+def test_saved_kits_gain_image_metadata_without_rerolling(tmp_path):
+    class ImagesProvider(DemoProvider):
+        def hydrate_card_images(self, cards):
+            for card in cards:
+                card.image_url = 'https://example.invalid/card.jpg'
+    store = EventStore(tmp_path / 'events')
+    client = TestClient(create_app(ImagesProvider(), store))
+    host = client.post('/api/events', json={'host_name': 'Host', 'set_code': 'DEMO'}).json()
+    code = host['event']['code']
+    client.post(f'/api/events/{code}/start', json={'player_id': host['player_id'], 'token': host['token']})
+    saved = next((tmp_path / 'events').glob('*.json')).read_bytes()
+    url = f"/api/events/{code}/players/{host['player_id']}/kit"
+    first = client.get(url, params={'token': host['token']}).json()['kit']
+    second = client.get(url, params={'token': host['token']}).json()['kit']
+    assert first == second
+    assert first['promo']['image_url'] == 'https://example.invalid/card.jpg'
+    assert all(c['image_url'] for pack in first['packs'] for c in pack['cards'])
+    assert next((tmp_path / 'events').glob('*.json')).read_bytes() == saved
+
+
 def test_prerelease_flow(tmp_path: Path):
     app = create_app(DemoProvider(), EventStore(tmp_path / "events"))
     client = TestClient(app)

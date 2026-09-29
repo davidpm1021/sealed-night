@@ -59,3 +59,32 @@ def test_unsupported_products_and_empty_pools_fail_closed():
     p, _ = provider([card('Invalid', isOversized=True)])
     with pytest.raises(ValueError):
         p.product_note('TST')
+
+
+def test_separate_image_identifiers_are_cached_for_saved_cards():
+    calls = []
+    def lookup(uuid):
+        calls.append(uuid)
+        return {'scryfallId': '6098d8be-4e3f-455d-8799-91435bf45a1c'}
+    p = MtgjsonProvider()
+    p._sdk = SimpleNamespace(identifiers=SimpleNamespace(get_identifiers=lookup))
+    first = p._normalize(card())
+    second = first.model_copy(deep=True)
+    p.hydrate_card_images([first, second])
+    assert calls == ['Rare']
+    assert first.image_url == second.image_url == 'https://cards.scryfall.io/normal/front/6/0/6098d8be-4e3f-455d-8799-91435bf45a1c.jpg'
+    assert first.name == second.name == 'Rare'
+
+
+def test_image_lookup_failure_preserves_card_and_can_retry():
+    def unavailable(uuid):
+        raise OSError('offline')
+    p = MtgjsonProvider()
+    p._sdk = SimpleNamespace(identifiers=SimpleNamespace(get_identifiers=unavailable))
+    c = p._normalize(card(text='Test rules'))
+    before = c.model_dump()
+    p.hydrate_card_images([c])
+    assert c.model_dump() == before
+    p._sdk.identifiers.get_identifiers = lambda uuid: {'scryfallId': 'abc123'}
+    p.hydrate_card_images([c])
+    assert c.image_url and c.oracle_text == 'Test rules'

@@ -59,11 +59,11 @@ input:focus, select:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgb
 .card.selected { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(215,184,111,.16); }
 .card-art-wrap { aspect-ratio: 488/680; border-radius: 8px; overflow: hidden; position: relative; background: #242938; }
 .card-art { width: 100%; height: 100%; object-fit: cover; display: block; }
-.card-art[src=""] { display:none; }
 .card-placeholder { position:absolute; inset:0; padding:14px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; gap:8px; background: radial-gradient(circle at 50% 20%, #3a435b, #181c26 70%); }
 .card-placeholder-name { font-size: 17px; }
 .card-placeholder-type { color: var(--muted); font-size: 12px; }
-.card-art:not([src=""]) + .card-placeholder { display:none; }
+.card-placeholder-text { font-size: 12px; white-space: pre-line; overflow: auto; }
+.card.image-loaded .card-placeholder { display:none; }
 .foil-badge { display:none; position:absolute; top:8px; right:8px; padding:4px 6px; border-radius:5px; font-size:10px; font-weight:950; color:#18110a; background: linear-gradient(90deg,#f3a2d7,#92e4ef,#f8e48b); }
 .card.foil .foil-badge { display:block; }
 .card-meta { display:flex; justify-content:space-between; gap:8px; padding:8px 4px 2px; }

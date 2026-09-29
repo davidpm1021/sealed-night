@@ -8,6 +8,10 @@ from app.models import CardData, SetPreview
 class CardProvider(ABC):
     name = "base"
 
+    def hydrate_card_images(self, cards: list[CardData]) -> None:
+        """Fill display metadata without changing the generated card pool."""
+        return None
+
     def product_note(self, set_code: str) -> str:
         return 'Simulated six-booster kit with a foil promo; physical product contents may differ.'
 
